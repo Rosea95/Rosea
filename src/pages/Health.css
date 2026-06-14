@@ -1,0 +1,47 @@
+/* 健康页面样式 */
+.health-stats-card {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 20px 16px;
+  background: linear-gradient(135deg, #f8f6f1 0%, #faf9f7 100%);
+}
+
+.stats-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stats-icon {
+  font-size: 28px;
+}
+
+.stats-content {
+  text-align: left;
+}
+
+.stats-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #4a4a4a;
+  line-height: 1.2;
+}
+
+.stats-label {
+  font-size: 12px;
+  color: #8b8b8b;
+  margin-top: 2px;
+}
+
+.stats-divider {
+  width: 1px;
+  height: 40px;
+  background-color: #e8e4dd;
+}
+
+.health-record-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: #4a4a4a;
+}

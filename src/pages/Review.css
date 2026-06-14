@@ -1,0 +1,272 @@
+.review-container {
+  padding: 16px;
+  padding-bottom: 80px;
+  background-color: #f8f6f1;
+  min-height: 100vh;
+}
+
+.page-header {
+  text-align: center;
+  padding: 20px 0 16px;
+}
+
+.page-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #4a4a4a;
+  margin-bottom: 4px;
+}
+
+.page-subtitle {
+  font-size: 14px;
+  color: #8b8b8b;
+}
+
+/* 时间范围切换 */
+.time-range-tabs {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 16px;
+}
+
+/* 加载状态 */
+.loading-state {
+  text-align: center;
+  padding: 40px;
+  color: #8b8b8b;
+  font-size: 14px;
+}
+
+/* 统计卡片 */
+.stat-card {
+  background-color: #ffffff;
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.stat-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #4a4a4a;
+  margin-bottom: 12px;
+}
+
+.stat-content {
+  /* 内容区域 */
+}
+
+.stat-main {
+  text-align: center;
+  padding: 8px 0;
+}
+
+.stat-number {
+  font-size: 36px;
+  font-weight: 700;
+  color: #c9a997;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #8b8b8b;
+  margin-top: 4px;
+}
+
+.stat-detail {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.detail-label {
+  font-size: 12px;
+  color: #8b8b8b;
+}
+
+.detail-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #4a4a4a;
+  margin-top: 4px;
+}
+
+.detail-value.overdue {
+  color: #e57373;
+}
+
+/* 运动统计 */
+.stat-row {
+  display: flex;
+  justify-content: space-around;
+  padding: 8px 0;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-item.expense .stat-number {
+  color: #e57373;
+}
+
+.stat-item.income .stat-number {
+  color: #81c784;
+}
+
+.stat-item.balance .stat-number {
+  color: #c9a997;
+}
+
+/* 高频运动排行 */
+.activity-ranking {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.ranking-title {
+  font-size: 12px;
+  color: #8b8b8b;
+  margin-bottom: 8px;
+}
+
+.ranking-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.ranking-badge {
+  width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  background-color: #c9a997;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+}
+
+.ranking-name {
+  font-size: 14px;
+  color: #4a4a4a;
+  flex: 1;
+}
+
+.ranking-count {
+  font-size: 12px;
+  color: #8b8b8b;
+}
+
+/* 分类支出图表 */
+.category-chart {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.chart-title {
+  font-size: 12px;
+  color: #8b8b8b;
+  margin-bottom: 8px;
+}
+
+.chart-bar {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.bar-label {
+  font-size: 12px;
+  color: #4a4a4a;
+  width: 60px;
+}
+
+.bar-track {
+  flex: 1;
+  height: 8px;
+  background-color: #e8e4dd;
+  border-radius: 4px;
+  margin-right: 8px;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.bar-value {
+  font-size: 12px;
+  color: #8b8b8b;
+  width: 80px;
+  text-align: right;
+}
+
+/* 心情统计 */
+.emotion-row {
+  display: flex;
+  justify-content: space-around;
+  padding: 16px 0;
+}
+
+.emotion-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.emotion-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.emotion-count {
+  font-size: 16px;
+  font-weight: 600;
+  color: #4a4a4a;
+}
+
+.emotion-total {
+  text-align: center;
+  font-size: 12px;
+  color: #8b8b8b;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+}
+
+/* 总结寄语 */
+.summary-card {
+  background-color: #dcc8b8;
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  align-items: flex-start;
+  margin-top: 16px;
+}
+
+.summary-icon {
+  font-size: 24px;
+  margin-right: 12px;
+}
+
+.summary-text {
+  font-size: 14px;
+  color: #ffffff;
+  line-height: 1.6;
+  flex: 1;
+}
