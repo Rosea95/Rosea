@@ -268,7 +268,7 @@ export function parseTodoFromMessage(message: string): ParsedTodo {
     
     // 清理任务文本
     task = task
-      .replace(/记得|要|去|请|帮我|提醒|帮我添加|添加|创建|设置|安排|还信用卡|看电影|去银行|跑步|开会|喝水|提交报告|吃沙拉/g, '')
+      .replace(/记得|要|请|帮我|提醒|帮我添加|添加|创建|设置|安排/g, '')
       .replace(/\s+/g, ' ')
       .trim()
     

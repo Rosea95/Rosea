@@ -7,6 +7,7 @@ import { backupToLocalStorage } from '../utils/backup'
 import { triggerVibrate } from '../utils/greeting'
 import type { ChatMessage, Todo, FinanceRecord, DiaryRecord, HealthRecord } from '../types'
 import { callDeepSeekSportIntent } from '../services/deepseekService'
+import { parseTodoFromMessage, parseRecurringTask } from '../utils/todoParser'
 import dayjs from 'dayjs'
 import './Chat.css'
 
@@ -40,36 +41,58 @@ function Chat() {
 
   // 本地关键词解析（处理非运动相关输入：记账、待办、日记）
   const parseLocalMessage = (message: string) => {
-    const msg = message
+    const msg = message.trim()
 
-    // ===== 记账关键词（金额相关）=====
-    const moneyMatch = message.match(/花了?\s*(\d+)\s*(元|块|块钱)|(\d+)\s*(元|块|块钱)/)
+    // 1. 优先检查是否为循环任务
+    const recurring = parseRecurringTask(msg)
+    if (recurring.isRecurring && recurring.dates.length > 0) {
+      console.log('[本地解析] 识别为循环任务:', recurring)
+      return { type: 'recurring', ...recurring }
+    }
+
+    // 2. 记账关键词（金额相关）
+    // 增强正则：支持“30元”、“花了30.5”、“支出100块”等
+    const moneyMatch = msg.match(/(?:花了?|支出|消费|买了?)\s*(\d+(?:\.\d+)?)\s*(元|块|块钱)?|(\d+(?:\.\d+)?)\s*(元|块|块钱)/)
     if (moneyMatch) {
-      const amount = parseInt(moneyMatch[1] || moneyMatch[3])
+      const amount = parseFloat(moneyMatch[1] || moneyMatch[3])
       let category = '其他'
-      if (msg.includes('午餐') || msg.includes('晚餐') || msg.includes('早餐') || msg.includes('吃饭') || msg.includes('饭')) category = '餐饮'
-      if (msg.includes('打车') || msg.includes('地铁') || msg.includes('公交')) category = '交通'
-      if (msg.includes('购物') || msg.includes('买')) category = '购物'
+      if (msg.includes('午餐') || msg.includes('晚餐') || msg.includes('早餐') || msg.includes('吃饭') || msg.includes('饭') || msg.includes('食堂')) category = '餐饮'
+      if (msg.includes('打车') || msg.includes('地铁') || msg.includes('公交') || msg.includes('油费')) category = '交通'
+      if (msg.includes('购物') || msg.includes('买') || msg.includes('淘宝') || msg.includes('超市')) category = '购物'
+      if (msg.includes('零食') || msg.includes('水果') || msg.includes('饮料') || msg.includes('奶茶')) category = '零食'
 
-      const title = message.replace(/花了?\s*\d+\s*(元|块|块钱)|\d+\s*(元|块|块钱)/, '').trim() || '支出'
+      const title = msg.replace(/(?:花了?|支出|消费|买了?)\s*\d+(?:\.\d+)?\s*(元|块|块钱)?|\d+(?:\.\d+)?\s*(元|块|块钱)/, '').trim() || '支出'
       console.log('[本地解析] 识别为记账:', title, amount, category)
       return { type: 'finance', title, amount, category }
     }
 
-    // ===== 待办关键词（时间相关）=====
-    const hasTimeWord = /明天|后天|大后天|下周|周[一二三四五六日]|下午|上午|晚上|早上|傍晚|\d+点/.test(msg)
-    if (hasTimeWord) {
-      const title = message.replace(/明天|后天|大后天|下周|周[一二三四五六日]|下午|上午|晚上|早上|傍晚|\d+点/g, '').trim() || '待办事项'
-      const dueDate = parseTimeFromMessage(message)
-      console.log('[本地解析] 识别为待办:', title, dueDate)
-      return { type: 'todo', title, dueDate }
+    // 3. 打卡/运动完成（打卡 跑步 30分钟）
+    const isCheckIn = msg.startsWith('打卡') || msg.includes('完成了') || msg.includes('已完成')
+    if (isCheckIn) {
+      const sportKeywords = ['跑步', '游泳', '健身', '瑜伽', '深蹲', '跳绳', '打球', '骑行', '走路', '冥想', '运动']
+      const matchedSport = sportKeywords.find(k => msg.includes(k))
+      if (matchedSport) {
+        const durationMatch = msg.match(/(\d+)\s*(分钟|小时|min|h)/)
+        let duration = durationMatch ? parseInt(durationMatch[1]) : undefined
+        if (duration && durationMatch && (durationMatch[2].includes('小时') || durationMatch[2] === 'h')) {
+          duration *= 60
+        }
+        return { type: 'health', title: matchedSport, duration }
+      }
     }
 
-    // ===== 日记/心情关键词 =====
-    const diaryKeywords = ['心情', '开心', '难过', '高兴', '累', '郁闷', '焦虑', '放松', '舒服', '感觉']
+    // 4. 待办关键词（使用更强大的 todoParser）
+    const todoResult = parseTodoFromMessage(msg)
+    if (todoResult.hasTime) {
+      console.log('[本地解析] 识别为待办:', todoResult.task, todoResult.dueDate)
+      return { type: 'todo', title: todoResult.task, dueDate: todoResult.dueDate?.getTime() }
+    }
+
+    // 5. 日记/心情关键词
+    const diaryKeywords = ['心情', '开心', '难过', '高兴', '累', '郁闷', '焦虑', '放松', '舒服', '感觉', '今天我', '日记']
     if (diaryKeywords.some(k => msg.includes(k))) {
-      console.log('[本地解析] 识别为日记:', message)
-      return { type: 'diary', title: message }
+      console.log('[本地解析] 识别为日记:', msg)
+      return { type: 'diary', title: msg }
     }
 
     // ===== 无法识别 =====
@@ -77,50 +100,29 @@ function Chat() {
     return { type: 'unknow' }
   }
 
-  // 时间解析
-  const parseTimeFromMessage = (message: string): number | undefined => {
-    const now = dayjs()
-    let baseDate = now
-    
-    // 日期关键词
-    if (message.includes('大后天')) baseDate = now.add(3, 'day')
-    else if (message.includes('后天')) baseDate = now.add(2, 'day')
-    else if (message.includes('明天')) baseDate = now.add(1, 'day')
-    else if (message.includes('今天')) baseDate = now
-    
-    // 时间关键词
-    let hour = 9, minute = 0
-    const timeMatch = message.match(/(\d+)\s*点\s*(\d+)?\s*分?/)
-    if (timeMatch) {
-      hour = parseInt(timeMatch[1])
-      minute = timeMatch[2] ? parseInt(timeMatch[2]) : 0
-    }
-    
-    // 修正下午时间
-    if (message.includes('下午') || message.includes('晚上') || message.includes('傍晚')) {
-      if (hour < 12) hour += 12
-    }
-    
-    // 傍晚默认18点
-    if (message.includes('傍晚') && !timeMatch) {
-      hour = 18
-    }
-    
-    const resultDate = baseDate.hour(hour).minute(minute).second(0)
-    
-    // 如果时间已过，加一天
-    if (resultDate.isBefore(now)) {
-      return resultDate.add(1, 'day').valueOf()
-    }
-    
-    return resultDate.valueOf()
-  }
-
   // 处理解析结果并写入数据库
   const handleParsedResult = async (parsed: any, db: Awaited<ReturnType<typeof getDB>>): Promise<string> => {
     const now = Date.now()
     
     switch (parsed.type) {
+      case 'recurring': {
+        const todos: Todo[] = parsed.dates.map((date: Date) => ({
+          id: generateId(),
+          title: parsed.task,
+          completed: false,
+          priority: 'medium',
+          dueDate: date.getTime(),
+          createdAt: now,
+          batchId: parsed.batchId,
+        }))
+        for (const todo of todos) {
+          await db.add('todos', todo)
+        }
+        await backupToLocalStorage()
+        triggerVibrate(20)
+        return `已生成循环任务：${parsed.task}，共 ${parsed.dates.length} 个。`
+      }
+
       case 'todo': {
         const todo: Todo = {
           id: generateId(),
@@ -172,14 +174,14 @@ function Chat() {
         const health: HealthRecord = {
           id: generateId(),
           title: parsed.title,
-          duration: parsed.duration ? parseInt(parsed.duration) : undefined,
+          duration: parsed.duration,
           createdAt: now,
         }
         await db.add('health', health)
         await backupToLocalStorage()  // 自动备份
         triggerVibrate(15)  // 震动反馈
         console.log('[数据库] 健康记录已写入:', health)
-        return `健康活动：${parsed.title}${parsed.duration ? ` ${parsed.duration}` : ''}`
+        return `健康活动：${parsed.title}${parsed.duration ? ` ${parsed.duration}分钟` : ''}`
       }
       
       default:
@@ -212,40 +214,63 @@ function Chat() {
 
       let replyContent = ''
 
-      // ===== 运动关键词检测（优先调用API）=====
-      const sportKeywords = ['跑步', '游泳', '健身', '瑜伽', '深蹲', '跳绳', '打球', '骑行', '走路', '冥想']
-      const matchedSportKeyword = sportKeywords.find(k => currentInput.includes(k))
+      // 1. 优先尝试本地解析（增强解析能力）
+      const parsed = parseLocalMessage(currentInput)
 
-      if (matchedSportKeyword) {
-        console.log('[运动检测] 检测到运动关键词:', matchedSportKeyword)
-        
-        // 提取运动时长
-        const durationMatch = currentInput.match(/(\d+)\s*(分钟|小时|卡|公里|米|次)/)
-        const duration = durationMatch ? durationMatch[0] : ''
+      if (parsed.type !== 'unknow') {
+        const recordText = await handleParsedResult(parsed, db)
+        replyContent = `✓ ${recordText}`
+      } else {
+        // 2. 本地无法识别，检查是否包含运动关键词（可能需要 API 进行意图判断：计划 vs 记录）
+        const sportKeywords = ['跑步', '游泳', '健身', '瑜伽', '深蹲', '跳绳', '打球', '骑行', '走路', '冥想']
+        const matchedSportKeyword = sportKeywords.find(k => currentInput.includes(k))
 
-        // 调用 DeepSeek API 判断意图
-        const sportIntent = await callDeepSeekSportIntent(currentInput)
-        
-        if (sportIntent) {
-          console.log('[运动API] 返回结果:', sportIntent)
+        if (matchedSportKeyword) {
+          console.log('[运动检测] 本地解析未完全识别，尝试 API:', matchedSportKeyword)
           
-          if (sportIntent.intent === 'log') {
-            // 记录健康活动
-            const health: HealthRecord = {
-              id: generateId(),
-              title: sportIntent.title,
-              duration: duration ? parseInt(duration) : undefined,
-              createdAt: now,
+          // 调用 DeepSeek API 判断意图
+          const sportIntent = await callDeepSeekSportIntent(currentInput)
+          
+          if (sportIntent) {
+            console.log('[运动API] 返回结果:', sportIntent)
+            
+            if (sportIntent.intent === 'log') {
+              // 提取运动时长（尝试从输入中再提取一次）
+              const durationMatch = currentInput.match(/(\d+)\s*(分钟|小时|min|h)/)
+              let duration = durationMatch ? parseInt(durationMatch[1]) : undefined
+              if (duration && durationMatch && (durationMatch[2].includes('小时') || durationMatch[2] === 'h')) {
+                duration *= 60
+              }
+
+              const health: HealthRecord = {
+                id: generateId(),
+                title: sportIntent.title,
+                duration: duration,
+                createdAt: now,
+              }
+              await db.add('health', health)
+              await backupToLocalStorage()
+              triggerVibrate(15)
+              replyContent = `✓ 已记录健康活动：${sportIntent.title}${duration ? ` ${duration}分钟` : ''}`
+            } else {
+              // 创建待办
+              const todo: Todo = {
+                id: generateId(),
+                title: sportIntent.title,
+                completed: false,
+                priority: 'medium',
+                createdAt: now,
+              }
+              await db.add('todos', todo)
+              await backupToLocalStorage()
+              triggerVibrate(15)
+              replyContent = `好的，已将${sportIntent.title}加入待办。完成后对我说"打卡 ${sportIntent.title}"就可以啦！`
             }
-            await db.add('health', health)
-            await backupToLocalStorage()
-            triggerVibrate(15)
-            replyContent = `✓ 已记录健康活动：${sportIntent.title}${duration ? ` ${duration}` : ''}`
           } else {
-            // 创建待办
+            // API 调用失败，降级处理：创建简单待办
             const todo: Todo = {
               id: generateId(),
-              title: sportIntent.title,
+              title: matchedSportKeyword,
               completed: false,
               priority: 'medium',
               createdAt: now,
@@ -253,35 +278,12 @@ function Chat() {
             await db.add('todos', todo)
             await backupToLocalStorage()
             triggerVibrate(15)
-            replyContent = `好的，已将${sportIntent.title}加入待办。完成后对我说"打卡 ${sportIntent.title}"就可以啦！`
+            replyContent = `好的，已将${matchedSportKeyword}加入待办。如果已完成，对我说"打卡 ${matchedSportKeyword}"。`
           }
+          replyContent += ' 💡 提示：说"打卡 [活动]"记录完成，说"计划 [活动]"添加待办。'
         } else {
-          // API 调用失败，降级处理：创建待办
-          console.log('[运动API] 调用失败，降级为待办')
-          const todo: Todo = {
-            id: generateId(),
-            title: matchedSportKeyword,
-            completed: false,
-            priority: 'medium',
-            createdAt: now,
-          }
-          await db.add('todos', todo)
-          await backupToLocalStorage()
-          triggerVibrate(15)
-          replyContent = `好的，已将${matchedSportKeyword}加入待办。如果已完成，对我说"打卡 ${matchedSportKeyword}"。`
-        }
-        
-        // 添加引导语
-        replyContent += ' 💡 提示：说"打卡 [活动]"记录完成，说"计划 [活动]"添加待办。'
-      } else {
-        // 非运动输入，使用本地解析
-        const parsed = parseLocalMessage(currentInput)
-
-        if (parsed.type === 'unknow') {
+          // 3. 最终兜底
           replyContent = '我是你的生活管家，可以帮你记待办、记账、记运动和心情。试试说"明天下午3点开会"、"午餐花了30元"、"跑步30分钟"、"今天心情不错"哦~'
-        } else {
-          const recordText = await handleParsedResult(parsed, db)
-          replyContent = `✓ 已记录：${recordText}`
         }
       }
 
