@@ -116,6 +116,7 @@ function Chat() {
           originalText,
         }
         await db.add('todos', todo)
+        console.log('数据已保存，原文:', originalText)
         await backupToLocalStorage()
         triggerVibrate(15)
         
@@ -143,6 +144,7 @@ function Chat() {
           originalText,
         }
         await db.add('todos', todo)
+        console.log('数据已保存，原文:', originalText)
         await backupToLocalStorage()
         triggerVibrate(15)
         return `✓ 已记录待办：${todo.title}`
@@ -159,6 +161,7 @@ function Chat() {
           originalText,
         }
         await db.add('financeRecords', finance)
+        console.log('数据已保存，原文:', originalText)
         await backupToLocalStorage()
         triggerVibrate(15)
         return `✓ 已记录记账：${finance.note}，${finance.amount}元，分类：${finance.category}`
@@ -172,6 +175,7 @@ function Chat() {
           originalText,
         }
         await db.add('diary', diary)
+        console.log('数据已保存，原文:', originalText)
         await backupToLocalStorage()
         triggerVibrate(15)
         return `✓ 已记录日记：${diary.title}`
@@ -193,6 +197,7 @@ function Chat() {
           originalText,
         }
         await db.add('health', health)
+        console.log('数据已保存，原文:', originalText)
         await backupToLocalStorage()
         triggerVibrate(15)
         return `✓ 已记录健康活动：${health.title}${duration ? ` ${duration}分钟` : ''}`
@@ -223,6 +228,7 @@ function Chat() {
         }))
         for (const todo of todos) {
           await db.add('todos', todo)
+          console.log('数据已保存，原文:', originalText)
         }
         await backupToLocalStorage()
         triggerVibrate(20)
@@ -240,6 +246,7 @@ function Chat() {
           originalText,
         }
         await db.add('todos', todo)
+        console.log('数据已保存，原文:', originalText)
         await backupToLocalStorage()
         triggerVibrate(15)
         
@@ -261,6 +268,7 @@ function Chat() {
           originalText,
         }
         await db.add('financeRecords', finance)
+        console.log('数据已保存，原文:', originalText)
         await backupToLocalStorage()
         triggerVibrate(15)
         return `记账：${parsed.title || '支出'}，${parsed.amount}元，分类：${parsed.category || '其他'}`
@@ -274,6 +282,7 @@ function Chat() {
           originalText,
         }
         await db.add('diary', diary)
+        console.log('数据已保存，原文:', originalText)
         await backupToLocalStorage()
         triggerVibrate(15)
         return `日记：${parsed.title}`
@@ -288,6 +297,7 @@ function Chat() {
           originalText,
         }
         await db.add('health', health)
+        console.log('数据已保存，原文:', originalText)
         await backupToLocalStorage()
         triggerVibrate(15)
         return `健康活动：${parsed.title}${parsed.duration ? ` ${parsed.duration}分钟` : ''}`
