@@ -6,7 +6,7 @@ import { getDB, generateId } from '../utils/db'
 import { backupToLocalStorage } from '../utils/backup'
 import { triggerVibrate } from '../utils/greeting'
 import type { ChatMessage, Todo, FinanceRecord, DiaryRecord, HealthRecord } from '../types'
-import { callDeepSeekSportIntent } from '../services/deepseekService'
+import { parseWithAI, ParseResult } from '../services/deepseekService'
 import { parseTodoFromMessage, parseRecurringTask } from '../utils/todoParser'
 import dayjs from 'dayjs'
 import './Chat.css'
@@ -39,7 +39,7 @@ function Chat() {
     }
   }
 
-  // 本地关键词解析（处理非运动相关输入：记账、待办、日记）
+  // 本地关键词解析（作为 AI 失败后的兜底）
   const parseLocalMessage = (message: string) => {
     const msg = message.trim()
 
@@ -51,7 +51,6 @@ function Chat() {
     }
 
     // 2. 记账关键词（金额相关）
-    // 增强正则：支持“30元”、“花了30.5”、“支出100块”等
     const moneyMatch = msg.match(/(?:花了?|支出|消费|买了?)\s*(\d+(?:\.\d+)?)\s*(元|块|块钱)?|(\d+(?:\.\d+)?)\s*(元|块|块钱)/)
     if (moneyMatch) {
       const amount = parseFloat(moneyMatch[1] || moneyMatch[3])
@@ -81,7 +80,7 @@ function Chat() {
       }
     }
 
-    // 4. 待办关键词（使用更强大的 todoParser）
+    // 4. 待办关键词
     const todoResult = parseTodoFromMessage(msg)
     if (todoResult.hasTime) {
       console.log('[本地解析] 识别为待办:', todoResult.task, todoResult.dueDate)
@@ -100,8 +99,101 @@ function Chat() {
     return { type: 'unknow' }
   }
 
-  // 处理解析结果并写入数据库
-  const handleParsedResult = async (parsed: any, db: Awaited<ReturnType<typeof getDB>>): Promise<string> => {
+  // 处理 AI 返回的解析结果
+  const handleAIResult = async (aiResult: ParseResult, db: Awaited<ReturnType<typeof getDB>>): Promise<string> => {
+    const now = Date.now()
+    
+    switch (aiResult.action) {
+      case 'addTodo': {
+        const dueDate = aiResult.data.time ? dayjs(aiResult.data.time).valueOf() : undefined
+        const todo: Todo = {
+          id: generateId(),
+          title: aiResult.data.title || '待办事项',
+          completed: false,
+          priority: 'medium',
+          dueDate: dueDate,
+          createdAt: now,
+        }
+        await db.add('todos', todo)
+        await backupToLocalStorage()
+        triggerVibrate(15)
+        
+        let reply = `✓ 已记录待办：${todo.title}`
+        if (dueDate) {
+          reply += `，时间：${dayjs(dueDate).format('YYYY-MM-DD HH:mm')}`
+        }
+        return reply
+      }
+      
+      case 'addCycle': {
+        // 对于循环任务，使用本地解析器处理
+        const localResult = parseLocalMessage('') // 这个逻辑暂时简化，后续可以根据 repeat 处理
+        // 先使用简单方式创建单个待办
+        const todo: Todo = {
+          id: generateId(),
+          title: aiResult.data.title || '待办事项',
+          completed: false,
+          priority: 'medium',
+          dueDate: aiResult.data.time ? dayjs(aiResult.data.time).valueOf() : undefined,
+          createdAt: now,
+        }
+        await db.add('todos', todo)
+        await backupToLocalStorage()
+        triggerVibrate(15)
+        return `✓ 已记录待办：${todo.title}`
+      }
+      
+      case 'addFin': {
+        const finance: FinanceRecord = {
+          id: generateId(),
+          type: 'expense',
+          category: aiResult.data.category || '其他',
+          amount: aiResult.data.amount || 0,
+          date: now,
+          note: aiResult.data.title || aiResult.data.note || '支出',
+        }
+        await db.add('financeRecords', finance)
+        await backupToLocalStorage()
+        triggerVibrate(15)
+        return `✓ 已记录记账：${finance.note}，${finance.amount}元，分类：${finance.category}`
+      }
+      
+      case 'addDiary': {
+        const diary: DiaryRecord = {
+          id: generateId(),
+          title: aiResult.data.title || '日记',
+          createdAt: now,
+        }
+        await db.add('diary', diary)
+        await backupToLocalStorage()
+        triggerVibrate(15)
+        return `✓ 已记录日记：${diary.title}`
+      }
+      
+      case 'addHealth': {
+        // 尝试从 AI 结果或原始消息中提取时长
+        let duration: number | undefined
+        const health: HealthRecord = {
+          id: generateId(),
+          title: aiResult.data.title || '健康活动',
+          duration: duration,
+          createdAt: now,
+        }
+        await db.add('health', health)
+        await backupToLocalStorage()
+        triggerVibrate(15)
+        return `✓ 已记录健康活动：${health.title}`
+      }
+      
+      case 'unknown':
+      default:
+        // AI 无法识别，走本地兜底
+        return ''
+    }
+  }
+
+  // 处理本地解析结果并写入数据库
+  const handleLocalResult = async (parsed: any, db: Awaited<ReturnType<typeof getDB>>): Promise<string> => {
     const now = Date.now()
     
     switch (parsed.type) {
@@ -133,8 +225,8 @@ function Chat() {
           createdAt: now,
         }
         await db.add('todos', todo)
-        await backupToLocalStorage()  // 自动备份
-        triggerVibrate(15)  // 震动反馈
+        await backupToLocalStorage()
+        triggerVibrate(15)
         
         let reply = `待办：${parsed.title}`
         if (parsed.dueDate) {
@@ -153,8 +245,8 @@ function Chat() {
           note: parsed.title,
         }
         await db.add('financeRecords', finance)
-        await backupToLocalStorage()  // 自动备份
-        triggerVibrate(15)  // 震动反馈
+        await backupToLocalStorage()
+        triggerVibrate(15)
         return `记账：${parsed.title || '支出'}，${parsed.amount}元，分类：${parsed.category || '其他'}`
       }
       
@@ -165,8 +257,8 @@ function Chat() {
           createdAt: now,
         }
         await db.add('diary', diary)
-        await backupToLocalStorage()  // 自动备份
-        triggerVibrate(15)  // 震动反馈
+        await backupToLocalStorage()
+        triggerVibrate(15)
         return `日记：${parsed.title}`
       }
       
@@ -178,9 +270,8 @@ function Chat() {
           createdAt: now,
         }
         await db.add('health', health)
-        await backupToLocalStorage()  // 自动备份
-        triggerVibrate(15)  // 震动反馈
-        console.log('[数据库] 健康记录已写入:', health)
+        await backupToLocalStorage()
+        triggerVibrate(15)
         return `健康活动：${parsed.title}${parsed.duration ? ` ${parsed.duration}分钟` : ''}`
       }
       
@@ -213,78 +304,44 @@ function Chat() {
       setMessages(prev => [...prev, userMessage])
 
       let replyContent = ''
+      let usedLocalParser = false
 
-      // 1. 优先尝试本地解析（增强解析能力）
-      const parsed = parseLocalMessage(currentInput)
-
-      if (parsed.type !== 'unknow') {
-        const recordText = await handleParsedResult(parsed, db)
-        replyContent = `✓ ${recordText}`
-      } else {
-        // 2. 本地无法识别，检查是否包含运动关键词（可能需要 API 进行意图判断：计划 vs 记录）
-        const sportKeywords = ['跑步', '游泳', '健身', '瑜伽', '深蹲', '跳绳', '打球', '骑行', '走路', '冥想']
-        const matchedSportKeyword = sportKeywords.find(k => currentInput.includes(k))
-
-        if (matchedSportKeyword) {
-          console.log('[运动检测] 本地解析未完全识别，尝试 API:', matchedSportKeyword)
-          
-          // 调用 DeepSeek API 判断意图
-          const sportIntent = await callDeepSeekSportIntent(currentInput)
-          
-          if (sportIntent) {
-            console.log('[运动API] 返回结果:', sportIntent)
-            
-            if (sportIntent.intent === 'log') {
-              // 提取运动时长（尝试从输入中再提取一次）
-              const durationMatch = currentInput.match(/(\d+)\s*(分钟|小时|min|h)/)
-              let duration = durationMatch ? parseInt(durationMatch[1]) : undefined
-              if (duration && durationMatch && (durationMatch[2].includes('小时') || durationMatch[2] === 'h')) {
-                duration *= 60
-              }
-
-              const health: HealthRecord = {
-                id: generateId(),
-                title: sportIntent.title,
-                duration: duration,
-                createdAt: now,
-              }
-              await db.add('health', health)
-              await backupToLocalStorage()
-              triggerVibrate(15)
-              replyContent = `✓ 已记录健康活动：${sportIntent.title}${duration ? ` ${duration}分钟` : ''}`
-            } else {
-              // 创建待办
-              const todo: Todo = {
-                id: generateId(),
-                title: sportIntent.title,
-                completed: false,
-                priority: 'medium',
-                createdAt: now,
-              }
-              await db.add('todos', todo)
-              await backupToLocalStorage()
-              triggerVibrate(15)
-              replyContent = `好的，已将${sportIntent.title}加入待办。完成后对我说"打卡 ${sportIntent.title}"就可以啦！`
-            }
-          } else {
-            // API 调用失败，降级处理：创建简单待办
-            const todo: Todo = {
-              id: generateId(),
-              title: matchedSportKeyword,
-              completed: false,
-              priority: 'medium',
-              createdAt: now,
-            }
-            await db.add('todos', todo)
-            await backupToLocalStorage()
-            triggerVibrate(15)
-            replyContent = `好的，已将${matchedSportKeyword}加入待办。如果已完成，对我说"打卡 ${matchedSportKeyword}"。`
-          }
-          replyContent += ' 💡 提示：说"打卡 [活动]"记录完成，说"计划 [活动]"添加待办。'
+      try {
+        // 1. 优先使用 AI 解析
+        console.log('[消息处理] 尝试使用 AI 解析...')
+        const aiResult = await parseWithAI(currentInput)
+        
+        if (aiResult.action !== 'unknown') {
+          console.log('[消息处理] AI 解析成功:', aiResult)
+          replyContent = await handleAIResult(aiResult, db)
         } else {
-          // 3. 最终兜底
-          replyContent = '我是你的生活管家，可以帮你记待办、记账、记运动和心情。试试说"明天下午3点开会"、"午餐花了30元"、"跑步30分钟"、"今天心情不错"哦~'
+          // AI 返回 unknown，尝试本地解析
+          console.log('[消息处理] AI 返回 unknown，尝试本地解析...')
+          usedLocalParser = true
+          const localResult = parseLocalMessage(currentInput)
+          if (localResult.type !== 'unknow') {
+            replyContent = await handleLocalResult(localResult, db)
+            replyContent = `✓ ${replyContent}`
+          }
         }
+      } catch (aiError) {
+        // 2. AI 调用失败，静默切换到本地解析
+        console.log('[消息处理] AI 解析失败，切换到本地解析:', aiError)
+        usedLocalParser = true
+        const localResult = parseLocalMessage(currentInput)
+        
+        if (localResult.type !== 'unknow') {
+          replyContent = await handleLocalResult(localResult, db)
+          replyContent = `✓ ${replyContent}`
+        }
+      }
+
+      // 如果 AI 和本地都无法识别，显示默认提示
+      if (!replyContent) {
+        replyContent = '我是你的生活管家，可以帮你记待办、记账、记运动和心情。试试说"明天下午3点开会"、"午餐花了30元"、"跑步30分钟"、"今天心情不错"哦~'
+      } else if (usedLocalParser) {
+        // 如果使用了本地解析，在末尾添加提示图标
+        replyContent = `${replyContent} 🤖`
       }
 
       // 保存系统回复

@@ -13,6 +13,20 @@ export interface AIAction {
   }
 }
 
+// 新的 AI 解析结果格式
+export interface ParseResult {
+  action: 'addTodo' | 'addCycle' | 'addFin' | 'addDiary' | 'addHealth' | 'unknown'
+  data: {
+    title: string | null
+    time: string | null
+    repeat: string | null
+    repeatCount: number | null
+    category: string | null
+    amount: number | null
+    note: string | null
+  }
+}
+
 // 运动意图判断结果
 export interface SportIntent {
   intent: 'plan' | 'log'
@@ -22,6 +36,99 @@ export interface SportIntent {
 // 从LocalStorage获取API Key
 export function getApiKey(): string {
   return localStorage.getItem(STORAGE_KEYS.DEEPSEEK_API_KEY) || DEEPSEEK_CONFIG.API_KEY
+}
+
+// 新的 parseWithAI 函数 - 智能解析用户输入
+export async function parseWithAI(message: string): Promise<ParseResult> {
+  const apiKey = getApiKey()
+  
+  if (!apiKey) {
+    console.log('[parseWithAI] API Key未设置，降级处理')
+    throw new Error('API_KEY_NOT_SET')
+  }
+
+  const systemPrompt = `你是一个智能生活管理助手。请分析用户输入，并返回一个JSON对象。
+不要闲聊，只返回JSON，不要包含markdown格式或其他文字。
+{
+  "action": "addTodo|addCycle|addFin|addDiary|addHealth|unknown",
+  "data": {
+    "title": "事项标题",
+    "time": "YYYY-MM-DD HH:mm 或 null",
+    "repeat": "如 weekly-1,3,5 或 null",
+    "repeatCount": "数字或null",
+    "category": "财务分类或null",
+    "amount": "数字或null",
+    "note": "备注或null"
+  }
+}
+请严格遵守以上JSON结构，不要添加任何额外说明。`
+
+  try {
+    const response = await fetch(`${DEEPSEEK_CONFIG.BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_CONFIG.MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: message },
+        ],
+        temperature: 0.01,  // 极低温度确保稳定输出
+      }),
+    })
+
+    if (!response.ok) {
+      console.log(`[parseWithAI] API调用失败: ${response.status}`)
+      throw new Error(`API Error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const content = data.choices?.[0]?.message?.content
+    
+    if (!content) {
+      console.log('[parseWithAI] 返回内容为空')
+      throw new Error('Empty response from AI')
+    }
+
+    console.log('[parseWithAI] 原始返回内容:', content)
+
+    // 清理并解析 JSON
+    let jsonStr = content.trim()
+    
+    // 去除可能的 markdown 代码块
+    if (jsonStr.startsWith('```json')) {
+      jsonStr = jsonStr.slice(7)
+    }
+    if (jsonStr.startsWith('```')) {
+      jsonStr = jsonStr.slice(3)
+    }
+    if (jsonStr.endsWith('```')) {
+      jsonStr = jsonStr.slice(0, -3)
+    }
+    
+    // 从字符串中提取 JSON 对象
+    const firstBrace = jsonStr.indexOf('{')
+    const lastBrace = jsonStr.lastIndexOf('}')
+    
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      jsonStr = jsonStr.substring(firstBrace, lastBrace + 1)
+    }
+    
+    console.log('[parseWithAI] 提取的JSON字符串:', jsonStr)
+    
+    const parsed = JSON.parse(jsonStr) as ParseResult
+    
+    console.log('[parseWithAI] 解析成功:', parsed)
+    
+    return parsed
+    
+  } catch (error) {
+    console.error('[parseWithAI] 调用失败:', error)
+    throw error
+  }
 }
 
 // 调用DeepSeek API进行运动意图判断
