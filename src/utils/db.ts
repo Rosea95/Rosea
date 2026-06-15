@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { ChatMessage, Conversation, Todo, CalendarEvent, FinanceRecord, ReviewEntry, UserProfile, DiaryRecord, HealthRecord } from '../types'
+import type { ChatMessage, Conversation, Todo, CalendarEvent, FinanceRecord, ReviewEntry, UserProfile, DiaryRecord, HealthRecord, BeautyItem } from '../types'
 
 interface RoseaDB extends DBSchema {
   conversations: {
@@ -42,6 +42,11 @@ interface RoseaDB extends DBSchema {
     value: HealthRecord
     indexes: { 'by-createdAt': number }
   }
+  beautyItems: {
+    key: string
+    value: BeautyItem
+    indexes: { 'by-expiryDate': number }
+  }
   profile: {
     key: string
     value: UserProfile
@@ -53,8 +58,8 @@ let dbInstance: IDBPDatabase<RoseaDB> | null = null
 export async function getDB(): Promise<IDBPDatabase<RoseaDB>> {
   if (dbInstance) return dbInstance
 
-  dbInstance = await openDB<RoseaDB>('rosea-db', 2, {
-    upgrade(db: IDBPDatabase<RoseaDB>) {
+  dbInstance = await openDB<RoseaDB>('rosea-db', 3, {
+    upgrade(db: IDBPDatabase<RoseaDB>, oldVersion) {
       if (!db.objectStoreNames.contains('conversations')) {
         const convStore = db.createObjectStore('conversations', { keyPath: 'id' })
         convStore.createIndex('by-lastMessageTime', 'lastMessageTime')
@@ -96,6 +101,11 @@ export async function getDB(): Promise<IDBPDatabase<RoseaDB>> {
       if (!db.objectStoreNames.contains('health')) {
         const healthStore = db.createObjectStore('health', { keyPath: 'id' })
         healthStore.createIndex('by-createdAt', 'createdAt')
+      }
+
+      if (oldVersion < 3 && !db.objectStoreNames.contains('beautyItems')) {
+        const beautyStore = db.createObjectStore('beautyItems', { keyPath: 'id' })
+        beautyStore.createIndex('by-expiryDate', 'expiryDate')
       }
 
       if (!db.objectStoreNames.contains('profile')) {

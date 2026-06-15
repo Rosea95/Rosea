@@ -99,3 +99,16 @@ export interface UserSettings {
   notificationEnabled: boolean
   themeColor: string
 }
+
+// 美丽/护肤物品记录
+export interface BeautyItem {
+  id: string
+  name: string // 物品名称
+  category: '护肤' | '彩妆' // 类别
+  openDate: number // 开封日期（时间戳）
+  expiryMonths: number // 保质期月数
+  expiryDate: number // 到期日期（自动计算）
+  note?: string // 备注
+  createdAt: number // 创建时间
+  originalText?: string // 原始聊天记录
+}

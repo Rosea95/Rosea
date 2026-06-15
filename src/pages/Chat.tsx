@@ -5,7 +5,7 @@ import { SendOutline, UserOutline } from 'antd-mobile-icons'
 import { getDB, generateId } from '../utils/db'
 import { backupToLocalStorage } from '../utils/backup'
 import { triggerVibrate } from '../utils/greeting'
-import type { ChatMessage, Todo, FinanceRecord, DiaryRecord, HealthRecord } from '../types'
+import type { ChatMessage, Todo, FinanceRecord, DiaryRecord, HealthRecord, BeautyItem } from '../types'
 import { parseWithAI, ParseResult } from '../services/deepseekService'
 import { parseTodoFromMessage, parseRecurringTask } from '../utils/todoParser'
 import dayjs from 'dayjs'
@@ -22,11 +22,65 @@ function Chat() {
 
   useEffect(() => {
     loadMessages()
+    checkBeautyExpiryReminders()
   }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // 检查美丽物品到期提醒
+  const checkBeautyExpiryReminders = async () => {
+    try {
+      const db = await getDB()
+      const now = Date.now()
+      const oneMonthInMs = 30 * 24 * 60 * 60 * 1000 // 30天
+      
+      const allBeautyItems = await db.getAll('beautyItems')
+      const expiringOrExpired = allBeautyItems.filter(item => {
+        const timeUntilExpiry = item.expiryDate - now
+        return timeUntilExpiry <= oneMonthInMs
+      })
+      
+      if (expiringOrExpired.length > 0) {
+        let reminderText = '今日提醒：\n'
+        expiringOrExpired.forEach(item => {
+          const timeUntilExpiry = item.expiryDate - now
+          const isExpired = timeUntilExpiry <= 0
+          const daysLeft = Math.ceil(timeUntilExpiry / (24 * 60 * 60 * 1000))
+          
+          if (isExpired) {
+            reminderText += `⚠️ 你的「${item.name}」已过期，请丢弃。\n`
+          } else {
+            reminderText += `⚠️ 你的「${item.name}」将在 ${daysLeft} 天后（${dayjs(item.expiryDate).format('YYYY-MM-DD')}）过期，记得及时更换。\n`
+          }
+        })
+        
+        // 检查今天是否已经发送过提醒
+        const todayStart = dayjs().startOf('day').valueOf()
+        const todayMessages = messages.filter(msg => 
+          msg.senderId === 'system' && 
+          msg.timestamp >= todayStart &&
+          msg.content.includes('今日提醒')
+        )
+        
+        if (todayMessages.length === 0) {
+          const systemMessage: ChatMessage = {
+            id: generateId(),
+            conversationId: DEFAULT_CONVERSATION_ID,
+            senderId: 'system',
+            content: reminderText,
+            timestamp: now,
+            type: 'text'
+          }
+          await db.add('messages', systemMessage)
+          setMessages(prev => [...prev, systemMessage])
+        }
+      }
+    } catch (error) {
+      console.error('检查美丽物品到期提醒失败:', error)
+    }
+  }
 
   const loadMessages = async () => {
     try {
@@ -43,7 +97,51 @@ function Chat() {
   const parseLocalMessage = (message: string) => {
     const msg = message.trim()
 
-    // 1. 优先检查是否为循环任务
+    // 1. 优先检查美丽物品
+    const beautyKeywords = ['买了新的', '开封了', '保质期', '过期提醒', '防晒霜', '精华', '面霜', '口红', '彩妆', '护肤']
+    const hasBeautyKeyword = beautyKeywords.some(k => msg.includes(k))
+    
+    if (hasBeautyKeyword) {
+      // 提取物品名称（简单提取，通常在前面）
+      let name = '物品'
+      // 简单提取名称的逻辑
+      const commonBeautyWords = ['防晒霜', '精华', '面霜', '乳液', '眼霜', '口红', '粉底', '腮红', '睫毛膏', '卸妆', '洁面', '面膜', '爽肤水', '保湿', '隔离', '防晒', '气垫', '散粉', '眉笔', '眼线']
+      for (const word of commonBeautyWords) {
+        if (msg.includes(word)) {
+          name = word
+          break
+        }
+      }
+      
+      // 提取保质期月数
+      const expiryMatch = msg.match(/保质期\s*(\d+)\s*个月|保质期\s*(\d+)\s*月/)
+      const expiryMonths = expiryMatch ? parseInt(expiryMatch[1] || expiryMatch[2]) : 0
+      
+      // 提取类别
+      let category: '护肤' | '彩妆' = '护肤'
+      const makeupKeywords = ['口红', '粉底', '腮红', '睫毛膏', '彩妆', '眉笔', '眼线', '眼影', '气垫', '散粉']
+      if (makeupKeywords.some(k => msg.includes(k))) {
+        category = '彩妆'
+      }
+      
+      if (expiryMonths > 0) {
+        // 开封日期默认是今天
+        const openDate = Date.now()
+        console.log('[本地解析] 识别为美丽物品:', name, category, expiryMonths)
+        return { 
+          type: 'beauty', 
+          name, 
+          category, 
+          openDate, 
+          expiryMonths 
+        }
+      } else {
+        // 如果没识别到保质期，返回特殊类型用于引导
+        return { type: 'beauty_prompt' }
+      }
+    }
+
+    // 2. 优先检查是否为循环任务
     const recurring = parseRecurringTask(msg)
     if (recurring.isRecurring && recurring.dates.length > 0) {
       console.log('[本地解析] 识别为循环任务:', recurring)
@@ -301,6 +399,32 @@ function Chat() {
         await backupToLocalStorage()
         triggerVibrate(15)
         return `健康活动：${parsed.title}${parsed.duration ? ` ${parsed.duration}分钟` : ''}`
+      }
+      
+      case 'beauty': {
+        // 计算到期日期
+        const openDate = dayjs(parsed.openDate)
+        const expiryDate = openDate.add(parsed.expiryMonths, 'month').valueOf()
+        
+        const beautyItem: BeautyItem = {
+          id: generateId(),
+          name: parsed.name,
+          category: parsed.category,
+          openDate: parsed.openDate,
+          expiryMonths: parsed.expiryMonths,
+          expiryDate: expiryDate,
+          createdAt: now,
+          originalText,
+        }
+        await db.add('beautyItems', beautyItem)
+        console.log('数据已保存，原文:', originalText)
+        await backupToLocalStorage()
+        triggerVibrate(15)
+        return `已记录「${parsed.name}」，将于 ${dayjs(expiryDate).format('YYYY-MM-DD')} 过期。`
+      }
+      
+      case 'beauty_prompt': {
+        return '请问开封日期和保质期是多少个月呀？'
       }
       
       default:

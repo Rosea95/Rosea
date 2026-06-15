@@ -7,13 +7,17 @@ import Finance from './pages/Finance'
 import Health from './pages/Health'
 import Diary from './pages/Diary'
 import Review from './pages/Review'
+import Beauty from './pages/Beauty'
 import Profile from './pages/Profile'
+
+const BeautyIcon = () => '🌸'
 
 const tabs = [
   { key: '/', title: '聊天', icon: MessageOutline },
   { key: '/schedule', title: '日程', icon: CalendarOutline },
   { key: '/finance', title: '记账', icon: PayCircleOutline },
   { key: '/health', title: '健康', icon: HeartOutline },
+  { key: '/beauty', title: '美丽', icon: BeautyIcon },
   { key: '/diary', title: '日记', icon: EditSOutline },
   { key: '/review', title: '复盘', icon: StarOutline },
   { key: '/profile', title: '我的', icon: UserOutline },
@@ -31,6 +35,7 @@ function App() {
         <Route path="/schedule" element={<Schedule />} />
         <Route path="/finance" element={<Finance />} />
         <Route path="/health" element={<Health />} />
+        <Route path="/beauty" element={<Beauty />} />
         <Route path="/diary" element={<Diary />} />
         <Route path="/review" element={<Review />} />
         <Route path="/profile" element={<Profile />} />
@@ -45,7 +50,18 @@ function App() {
         }}
       >
         {tabs.map((tab) => (
-          <TabBar.Item key={tab.key} icon={(active: boolean) => <tab.icon style={{ color: active ? '#c9a997' : '#b5b5b5' }} />} title={tab.title} />
+          <TabBar.Item 
+            key={tab.key} 
+            icon={(active: boolean) => {
+              // 如果是 emoji 图标，直接返回字符串
+              if (tab.key === '/beauty') {
+                return <span style={{ fontSize: '18px' }}>{tab.icon()}</span>
+              }
+              // 否则是 Ant Design 图标
+              return <tab.icon style={{ color: active ? '#c9a997' : '#b5b5b5' }} />
+            }} 
+            title={tab.title} 
+          />
         ))}
       </TabBar>
     </div>
