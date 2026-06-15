@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Calendar, List, Checkbox, Badge, Button, Space } from 'antd-mobile'
-import { UnorderedListOutline, CalendarOutline } from 'antd-mobile-icons'
+import { Calendar, List, Checkbox, Badge, Button, Space, Modal } from 'antd-mobile'
+import { UnorderedListOutline, CalendarOutline, MessageOutline } from 'antd-mobile-icons'
 import { getDB } from '../utils/db'
 import { getGreetingTitle } from '../utils/greeting'
 import type { Todo } from '../types'
@@ -11,6 +11,8 @@ function Schedule() {
   const [todos, setTodos] = useState<Todo[]>([])
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [selectedDateTodos, setSelectedDateTodos] = useState<Todo[]>([])
+  const [showOriginalModal, setShowOriginalModal] = useState(false)
+  const [currentOriginalText, setCurrentOriginalText] = useState('')
 
   // 页面加载时，从 IndexedDB 读取所有待办
   useEffect(() => {
@@ -44,9 +46,6 @@ function Schedule() {
         const updatedTodo = { ...todo, completed: !todo.completed }
         await db.put('todos', updatedTodo)
         
-        // 添加调试日志
-        console.log(`待办 ${id} 状态更新: completed = ${updatedTodo.completed}`)
-        
         // 更新本地状态 - 同时更新 todos 和 selectedDateTodos
         setTodos(prev => {
           const newTodos = prev.map(t => t.id === id ? updatedTodo : t)
@@ -60,6 +59,16 @@ function Schedule() {
     } catch (error) {
       console.error('更新待办失败:', error)
     }
+  }
+
+  // 查看原文
+  const viewOriginalText = (text?: string) => {
+    // 震动反馈
+    if (navigator.vibrate) {
+      navigator.vibrate(10)
+    }
+    setCurrentOriginalText(text || '无原始聊天记录')
+    setShowOriginalModal(true)
   }
 
   // 格式化时间显示
@@ -148,7 +157,7 @@ function Schedule() {
                 {todos.map((todo) => (
                   <List.Item
                     key={todo.id}
-                    onClick={() => toggleTodo(todo.id)}
+                    onClick={() => viewOriginalText(todo.originalText)}
                     prefix={
                       <div 
                         onClick={(e) => {
@@ -169,6 +178,15 @@ function Schedule() {
                           } as React.CSSProperties}
                         />
                       </div>
+                    }
+                    extra={
+                      <MessageOutline 
+                        style={{ color: '#c9a997', fontSize: '18px', opacity: todo.originalText ? 1 : 0.3 }} 
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          viewOriginalText(todo.originalText)
+                        }}
+                      />
                     }
                     style={{ 
                       textDecoration: todo.completed ? 'line-through' : 'none',
@@ -228,7 +246,7 @@ function Schedule() {
                 {selectedDateTodos.map((todo) => (
                   <List.Item
                     key={todo.id}
-                    onClick={() => toggleTodo(todo.id)}
+                    onClick={() => viewOriginalText(todo.originalText)}
                     prefix={
                       <div 
                         onClick={(e) => {
@@ -250,6 +268,15 @@ function Schedule() {
                         />
                       </div>
                     }
+                    extra={
+                      <MessageOutline 
+                        style={{ color: '#c9a997', fontSize: '18px', opacity: todo.originalText ? 1 : 0.3 }} 
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          viewOriginalText(todo.originalText)
+                        }}
+                      />
+                    }
                     style={{ 
                       textDecoration: todo.completed ? 'line-through' : 'none',
                       color: todo.completed ? '#b5b5b5' : '#4a4a4a',
@@ -270,6 +297,36 @@ function Schedule() {
           </div>
         </div>
       )}
+
+      {/* 原文详情弹窗 */}
+      <Modal
+        visible={showOriginalModal}
+        content={
+          <div style={{ padding: '12px 0' }}>
+            <div style={{ 
+              backgroundColor: '#f8f6f1', 
+              padding: '16px', 
+              borderRadius: '12px',
+              color: '#5a5a5a',
+              fontSize: '15px',
+              lineHeight: '1.6',
+              border: '1px solid #e8e4dd'
+            }}>
+              {currentOriginalText}
+            </div>
+          </div>
+        }
+        closeOnAction
+        onClose={() => setShowOriginalModal(false)}
+        title="原文详情"
+        actions={[
+          {
+            key: 'close',
+            text: '关闭',
+            style: { color: '#c9a997' }
+          },
+        ]}
+      />
     </div>
   )
 }

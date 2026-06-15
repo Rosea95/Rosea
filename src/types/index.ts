@@ -25,6 +25,7 @@ export interface Todo {
   dueDate?: number
   createdAt: number
   batchId?: string  // 用于标记循环任务的批次ID
+  originalText?: string // 原始聊天记录
 }
 
 export interface CalendarEvent {
@@ -35,6 +36,7 @@ export interface CalendarEvent {
   endDate: number
   location?: string
   participants?: string[]
+  originalText?: string // 原始聊天记录
 }
 
 export interface FinanceRecord {
@@ -44,6 +46,7 @@ export interface FinanceRecord {
   amount: number
   date: number
   note?: string
+  originalText?: string // 原始聊天记录
 }
 
 export interface FinanceCategory {
@@ -69,6 +72,7 @@ export interface DiaryRecord {
   emotion?: 'positive' | 'negative' | 'neutral'  // 情绪极性
   createdAt: number   // 创建时间
   source?: string      // 来源标识，如 'ai'
+  originalText?: string // 原始聊天记录
 }
 
 // 健康/运动记录（AI解析 addHealth）
@@ -79,6 +83,7 @@ export interface HealthRecord {
   duration?: number    // 持续时间（分钟）
   createdAt: number    // 创建时间
   source?: string       // 来源标识，如 'ai'
+  originalText?: string // 原始聊天记录
 }
 
 export interface UserProfile {

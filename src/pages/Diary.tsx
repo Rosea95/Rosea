@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { List, Space } from 'antd-mobile'
+import { List, Space, Modal } from 'antd-mobile'
 import { getDB } from '../utils/db'
 import { getGreetingTitle } from '../utils/greeting'
 import type { DiaryRecord } from '../types'
@@ -9,6 +9,8 @@ import './Diary.css'
 function Diary() {
   const [records, setRecords] = useState<DiaryRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [showOriginalModal, setShowOriginalModal] = useState(false)
+  const [currentOriginalText, setCurrentOriginalText] = useState('')
 
   // 页面加载时，从 IndexedDB 读取日记记录
   useEffect(() => {
@@ -27,6 +29,16 @@ function Diary() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // 查看原文
+  const viewOriginalText = (text?: string) => {
+    // 震动反馈
+    if (navigator.vibrate) {
+      navigator.vibrate(10)
+    }
+    setCurrentOriginalText(text || '无原始聊天记录')
+    setShowOriginalModal(true)
   }
 
   // 获取情绪颜色
@@ -98,7 +110,12 @@ function Diary() {
                   </span>
                 </div>
                 {dayRecords.map((record) => (
-                  <div key={record.id} className="timeline-item">
+                  <div 
+                    key={record.id} 
+                    className="timeline-item"
+                    onClick={() => viewOriginalText(record.originalText)}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <div 
                       className="timeline-dot"
                       style={{ backgroundColor: getEmotionColor(record.emotion) }}
@@ -128,6 +145,36 @@ function Diary() {
           </div>
         )}
       </div>
+
+      {/* 原文详情弹窗 */}
+      <Modal
+        visible={showOriginalModal}
+        content={
+          <div style={{ padding: '12px 0' }}>
+            <div style={{ 
+              backgroundColor: '#f8f6f1', 
+              padding: '16px', 
+              borderRadius: '12px',
+              color: '#5a5a5a',
+              fontSize: '15px',
+              lineHeight: '1.6',
+              border: '1px solid #e8e4dd'
+            }}>
+              {currentOriginalText}
+            </div>
+          </div>
+        }
+        closeOnAction
+        onClose={() => setShowOriginalModal(false)}
+        title="原文详情"
+        actions={[
+          {
+            key: 'close',
+            text: '关闭',
+            style: { color: '#c9a997' }
+          },
+        ]}
+      />
     </div>
   )
 }

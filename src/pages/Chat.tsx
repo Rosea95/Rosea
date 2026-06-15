@@ -100,7 +100,7 @@ function Chat() {
   }
 
   // 处理 AI 返回的解析结果
-  const handleAIResult = async (aiResult: ParseResult, db: Awaited<ReturnType<typeof getDB>>): Promise<string> => {
+  const handleAIResult = async (aiResult: ParseResult, db: Awaited<ReturnType<typeof getDB>>, originalText: string): Promise<string> => {
     const now = Date.now()
     
     switch (aiResult.action) {
@@ -113,6 +113,7 @@ function Chat() {
           priority: 'medium',
           dueDate: dueDate,
           createdAt: now,
+          originalText,
         }
         await db.add('todos', todo)
         await backupToLocalStorage()
@@ -127,8 +128,11 @@ function Chat() {
       
       case 'addCycle': {
         // 对于循环任务，使用本地解析器处理
-        const localResult = parseLocalMessage('') // 这个逻辑暂时简化，后续可以根据 repeat 处理
-        // 先使用简单方式创建单个待办
+        const localResult = parseLocalMessage(originalText)
+        if (localResult.type === 'recurring') {
+          return await handleLocalResult(localResult, db, originalText)
+        }
+        // 如果本地解析没成功，回退到普通待办
         const todo: Todo = {
           id: generateId(),
           title: aiResult.data.title || '待办事项',
@@ -136,6 +140,7 @@ function Chat() {
           priority: 'medium',
           dueDate: aiResult.data.time ? dayjs(aiResult.data.time).valueOf() : undefined,
           createdAt: now,
+          originalText,
         }
         await db.add('todos', todo)
         await backupToLocalStorage()
@@ -151,6 +156,7 @@ function Chat() {
           amount: aiResult.data.amount || 0,
           date: now,
           note: aiResult.data.title || aiResult.data.note || '支出',
+          originalText,
         }
         await db.add('financeRecords', finance)
         await backupToLocalStorage()
@@ -163,6 +169,7 @@ function Chat() {
           id: generateId(),
           title: aiResult.data.title || '日记',
           createdAt: now,
+          originalText,
         }
         await db.add('diary', diary)
         await backupToLocalStorage()
@@ -171,18 +178,24 @@ function Chat() {
       }
       
       case 'addHealth': {
-        // 尝试从 AI 结果或原始消息中提取时长
-        let duration: number | undefined
+        // 尝试从原始消息中提取时长
+        const durationMatch = originalText.match(/(\d+)\s*(分钟|小时|min|h)/)
+        let duration = durationMatch ? parseInt(durationMatch[1]) : undefined
+        if (duration && durationMatch && (durationMatch[2].includes('小时') || durationMatch[2] === 'h')) {
+          duration *= 60
+        }
+
         const health: HealthRecord = {
           id: generateId(),
           title: aiResult.data.title || '健康活动',
           duration: duration,
           createdAt: now,
+          originalText,
         }
         await db.add('health', health)
         await backupToLocalStorage()
         triggerVibrate(15)
-        return `✓ 已记录健康活动：${health.title}`
+        return `✓ 已记录健康活动：${health.title}${duration ? ` ${duration}分钟` : ''}`
       }
       
       case 'unknown':
@@ -193,7 +206,7 @@ function Chat() {
   }
 
   // 处理本地解析结果并写入数据库
-  const handleLocalResult = async (parsed: any, db: Awaited<ReturnType<typeof getDB>>): Promise<string> => {
+  const handleLocalResult = async (parsed: any, db: Awaited<ReturnType<typeof getDB>>, originalText: string): Promise<string> => {
     const now = Date.now()
     
     switch (parsed.type) {
@@ -206,6 +219,7 @@ function Chat() {
           dueDate: date.getTime(),
           createdAt: now,
           batchId: parsed.batchId,
+          originalText,
         }))
         for (const todo of todos) {
           await db.add('todos', todo)
@@ -223,6 +237,7 @@ function Chat() {
           priority: 'medium',
           dueDate: parsed.dueDate,
           createdAt: now,
+          originalText,
         }
         await db.add('todos', todo)
         await backupToLocalStorage()
@@ -243,6 +258,7 @@ function Chat() {
           amount: parsed.amount,
           date: now,
           note: parsed.title,
+          originalText,
         }
         await db.add('financeRecords', finance)
         await backupToLocalStorage()
@@ -255,6 +271,7 @@ function Chat() {
           id: generateId(),
           title: parsed.title,
           createdAt: now,
+          originalText,
         }
         await db.add('diary', diary)
         await backupToLocalStorage()
@@ -268,6 +285,7 @@ function Chat() {
           title: parsed.title,
           duration: parsed.duration,
           createdAt: now,
+          originalText,
         }
         await db.add('health', health)
         await backupToLocalStorage()
@@ -313,14 +331,14 @@ function Chat() {
         
         if (aiResult.action !== 'unknown') {
           console.log('[消息处理] AI 解析成功:', aiResult)
-          replyContent = await handleAIResult(aiResult, db)
+          replyContent = await handleAIResult(aiResult, db, currentInput)
         } else {
           // AI 返回 unknown，尝试本地解析
           console.log('[消息处理] AI 返回 unknown，尝试本地解析...')
           usedLocalParser = true
           const localResult = parseLocalMessage(currentInput)
           if (localResult.type !== 'unknow') {
-            replyContent = await handleLocalResult(localResult, db)
+            replyContent = await handleLocalResult(localResult, db, currentInput)
             replyContent = `✓ ${replyContent}`
           }
         }
@@ -331,7 +349,7 @@ function Chat() {
         const localResult = parseLocalMessage(currentInput)
         
         if (localResult.type !== 'unknow') {
-          replyContent = await handleLocalResult(localResult, db)
+          replyContent = await handleLocalResult(localResult, db, currentInput)
           replyContent = `✓ ${replyContent}`
         }
       }

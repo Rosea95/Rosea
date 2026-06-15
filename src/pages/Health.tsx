@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { List } from 'antd-mobile'
+import { List, Modal } from 'antd-mobile'
 import { getDB } from '../utils/db'
 import { getGreetingTitle } from '../utils/greeting'
 import type { HealthRecord } from '../types'
@@ -9,6 +9,8 @@ import './Health.css'
 function Health() {
   const [records, setRecords] = useState<HealthRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [showOriginalModal, setShowOriginalModal] = useState(false)
+  const [currentOriginalText, setCurrentOriginalText] = useState('')
 
   // 页面加载时，从 IndexedDB 读取健康记录
   useEffect(() => {
@@ -27,6 +29,16 @@ function Health() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // 查看原文
+  const viewOriginalText = (text?: string) => {
+    // 震动反馈
+    if (navigator.vibrate) {
+      navigator.vibrate(10)
+    }
+    setCurrentOriginalText(text || '无原始聊天记录')
+    setShowOriginalModal(true)
   }
 
   // 计算本周运动次数
@@ -121,6 +133,8 @@ function Health() {
             {records.map((record) => (
               <List.Item
                 key={record.id}
+                onClick={() => viewOriginalText(record.originalText)}
+                style={{ cursor: 'pointer' }}
                 prefix={
                   <div style={{ 
                     width: '44px', 
@@ -162,6 +176,36 @@ function Health() {
           </List>
         )}
       </div>
+
+      {/* 原文详情弹窗 */}
+      <Modal
+        visible={showOriginalModal}
+        content={
+          <div style={{ padding: '12px 0' }}>
+            <div style={{ 
+              backgroundColor: '#f8f6f1', 
+              padding: '16px', 
+              borderRadius: '12px',
+              color: '#5a5a5a',
+              fontSize: '15px',
+              lineHeight: '1.6',
+              border: '1px solid #e8e4dd'
+            }}>
+              {currentOriginalText}
+            </div>
+          </div>
+        }
+        closeOnAction
+        onClose={() => setShowOriginalModal(false)}
+        title="原文详情"
+        actions={[
+          {
+            key: 'close',
+            text: '关闭',
+            style: { color: '#c9a997' }
+          },
+        ]}
+      />
     </div>
   )
 }
