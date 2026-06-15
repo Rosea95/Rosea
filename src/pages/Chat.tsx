@@ -17,6 +17,7 @@ function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [hasShownApiKeyHint, setHasShownApiKeyHint] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<InputRef>(null)
 
@@ -225,7 +226,7 @@ function Chat() {
         return reply
       }
       
-      case 'addCycle': {
+      case 'addCycleTodo': {
         // 对于循环任务，使用本地解析器处理
         const localResult = parseLocalMessage(originalText)
         if (localResult.type === 'recurring') {
@@ -246,6 +247,46 @@ function Chat() {
         await backupToLocalStorage()
         triggerVibrate(15)
         return `✓ 已记录待办：${todo.title}`
+      }
+      
+      case 'addBeauty': {
+        // 解析美丽物品
+        const beautyName = aiResult.data.beautyName || '物品'
+        let category: '护肤' | '彩妆' = '护肤'
+        const makeupKeywords = ['口红', '粉底', '腮红', '睫毛膏', '彩妆', '眉笔', '眼线', '眼影', '气垫', '散粉']
+        if (makeupKeywords.some(k => beautyName.includes(k))) {
+          category = '彩妆'
+        }
+        
+        let openDate = now
+        if (aiResult.data.openDate) {
+          openDate = dayjs(aiResult.data.openDate).valueOf()
+        }
+        
+        let expiryMonths = 12
+        if (aiResult.data.expiryMonths) {
+          expiryMonths = aiResult.data.expiryMonths
+        }
+        
+        const expiryDate = dayjs(openDate).add(expiryMonths, 'month').valueOf()
+        
+        const beautyItem: BeautyItem = {
+          id: generateId(),
+          name: beautyName,
+          category: category,
+          openDate: openDate,
+          expiryMonths: expiryMonths,
+          expiryDate: expiryDate,
+          createdAt: now,
+          originalText,
+        }
+        
+        await db.add('beautyItems', beautyItem)
+        console.log('数据已保存，原文:', originalText)
+        await backupToLocalStorage()
+        triggerVibrate(15)
+        
+        return `✓ 已记录「${beautyName}」，将于 ${dayjs(expiryDate).format('YYYY-MM-DD')} 过期。`
       }
       
       case 'addFin': {
@@ -457,6 +498,7 @@ function Chat() {
 
       let replyContent = ''
       let usedLocalParser = false
+      let showApiKeyHint = false
 
       try {
         // 1. 优先使用 AI 解析
@@ -479,6 +521,14 @@ function Chat() {
       } catch (aiError) {
         // 2. AI 调用失败，静默切换到本地解析
         console.log('[消息处理] AI 解析失败，切换到本地解析:', aiError)
+        
+        // 检查是否是 API Key 缺失
+        const apiKey = localStorage.getItem('rosea_deepseek_api_key') || ''
+        if (!apiKey && !hasShownApiKeyHint) {
+          showApiKeyHint = true
+          setHasShownApiKeyHint(true)
+        }
+        
         usedLocalParser = true
         const localResult = parseLocalMessage(currentInput)
         
@@ -506,7 +556,22 @@ function Chat() {
         type: 'text'
       }
       await db.add('messages', systemMessage)
-      setMessages(prev => [...prev, systemMessage])
+      
+      // 如果需要显示 API Key 提示，在系统回复后再发送提示
+      if (showApiKeyHint) {
+        const apiKeyHintMessage: ChatMessage = {
+          id: generateId(),
+          conversationId: DEFAULT_CONVERSATION_ID,
+          senderId: 'system',
+          content: '💡 提示：在"我的"页面设置 DeepSeek API Key，我就能更懂你哦~',
+          timestamp: Date.now(),
+          type: 'text'
+        }
+        await db.add('messages', apiKeyHintMessage)
+        setMessages(prev => [...prev, systemMessage, apiKeyHintMessage])
+      } else {
+        setMessages(prev => [...prev, systemMessage])
+      }
 
     } catch (error) {
       console.error('发送消息失败:', error)

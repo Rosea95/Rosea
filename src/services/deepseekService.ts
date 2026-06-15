@@ -15,7 +15,7 @@ export interface AIAction {
 
 // 新的 AI 解析结果格式
 export interface ParseResult {
-  action: 'addTodo' | 'addCycle' | 'addFin' | 'addDiary' | 'addHealth' | 'unknown'
+  action: 'addTodo' | 'addCycleTodo' | 'addFin' | 'addDiary' | 'addHealth' | 'addBeauty' | 'unknown'
   data: {
     title: string | null
     time: string | null
@@ -24,6 +24,9 @@ export interface ParseResult {
     category: string | null
     amount: number | null
     note: string | null
+    beautyName: string | null
+    openDate: string | null
+    expiryMonths: number | null
   }
 }
 
@@ -47,21 +50,37 @@ export async function parseWithAI(message: string): Promise<ParseResult> {
     throw new Error('API_KEY_NOT_SET')
   }
 
-  const systemPrompt = `你是一个智能生活管理助手。请分析用户输入，并返回一个JSON对象。
-不要闲聊，只返回JSON，不要包含markdown格式或其他文字。
+  const systemPrompt = `你是一个智能生活管理助手。请分析用户输入，并返回一个严格的 JSON 对象。
+
+你需要识别用户意图，并提取关键信息。返回的 JSON 结构如下：
 {
-  "action": "addTodo|addCycle|addFin|addDiary|addHealth|unknown",
+  "action": "动作类型",
   "data": {
     "title": "事项标题",
-    "time": "YYYY-MM-DD HH:mm 或 null",
-    "repeat": "如 weekly-1,3,5 或 null",
-    "repeatCount": "数字或null",
-    "category": "财务分类或null",
-    "amount": "数字或null",
-    "note": "备注或null"
+    "time": "时间，格式化为 YYYY-MM-DD HH:mm，未提及则为 null",
+    "repeat": "循环规则，如 weekly-1,3,5 或 daily，无则为 null",
+    "repeatCount": "循环次数，数字，无则为 null",
+    "category": "记账分类，如 餐饮/交通/购物/护肤，无则为 null",
+    "amount": "金额，数字，无则为 null",
+    "note": "备注，无则为 null",
+    "beautyName": "护肤品/化妆品名称，无则为 null",
+    "openDate": "开封日期 YYYY-MM-DD，无则为 null",
+    "expiryMonths": "保质期月数，数字，无则为 null"
   }
 }
-请严格遵守以上JSON结构，不要添加任何额外说明。`
+
+action 可选值：
+- addTodo：单次待办
+- addCycleTodo：循环待办
+- addFin：记账（必须包含金额）
+- addDiary：日记/心情
+- addHealth：运动/健康记录
+- addBeauty：护肤品/化妆品开封记录（必须包含名称和保质期相关）
+- unknown：无法识别
+
+强制规则：
+- 如果用户提到“买了/新开/开封/保质期”等词且涉及护肤品/化妆品，action 必须是 addBeauty，绝对不能识别为 addFinance。
+- 只返回 JSON，不要任何其他文字。`
 
   try {
     const response = await fetch(`${DEEPSEEK_CONFIG.BASE_URL}/chat/completions`, {
