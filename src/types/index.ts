@@ -26,6 +26,11 @@ export interface Todo {
   createdAt: number
   batchId?: string  // 用于标记循环任务的批次ID
   originalText?: string // 原始聊天记录
+  // 课程相关字段
+  type?: 'normal' | 'course'  // 待办类型
+  location?: string  // 地点
+  courseColor?: string  // 课程颜色
+  courseEndTime?: number  // 课程结束时间
 }
 
 export interface CalendarEvent {
