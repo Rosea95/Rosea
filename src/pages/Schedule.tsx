@@ -1,5 +1,6 @@
+// 日程页交互修复 - 2026-06-16
 import { useState, useEffect } from 'react'
-import { Calendar, List, Checkbox, Badge, Button, Space, Modal, Form, Input, Picker, Toast } from 'antd-mobile'
+import { Calendar, List, Checkbox, Badge, Button, Space, Modal, Form, Input, Picker, Toast, Selector } from 'antd-mobile'
 import { UnorderedListOutline, CalendarOutline, MessageOutline, AppOutline } from 'antd-mobile-icons'
 import { getDB, generateId } from '../utils/db'
 import { getGreetingTitle } from '../utils/greeting'
@@ -10,7 +11,7 @@ import './Schedule.css'
 // 预定义颜色选项
 const COLOR_OPTIONS = [
   { label: '蓝色（工作）', value: '#4A90E2' },
-  { label: '粉色（个人）', value: '#E85E9F' },
+  { label: '粉色（个人）', value: '#E8A0BF' },
   { label: '绿色（学习）', value: '#50C878' },
   { label: '橙色（生活）', value: '#F5A623' },
   { label: '紫色（创意）', value: '#9B59B6' },
@@ -47,8 +48,8 @@ const TIME_OPTIONS = generateTimeOptions()
 // 筛选选项
 const FILTER_OPTIONS = [
   { label: '全部', value: 'all' },
-  { label: '仅课程', value: 'course' },
-  { label: '仅待办', value: 'normal' }
+  { label: '课程', value: 'course' },
+  { label: '个人待办', value: 'normal' }
 ]
 
 function Schedule() {
@@ -61,8 +62,11 @@ function Schedule() {
   
   // 新增状态
   const [showCourseModal, setShowCourseModal] = useState(false)
+  const [showTodoModal, setShowTodoModal] = useState(false)
   const [filterMode, setFilterMode] = useState<'all' | 'course' | 'normal'>('all')
   const [form] = Form.useForm()
+  const [todoForm] = Form.useForm()
+  const [courseForm] = Form.useForm()
 
   // 页面加载时，从 IndexedDB 读取所有待办
   useEffect(() => {
@@ -82,6 +86,10 @@ function Schedule() {
         return a.dueDate - b.dueDate
       })
       setTodos(sortedTodos)
+      
+      // 更新当前选中日期的待办
+      const dayTodos = getTodosForDate(selectedDate, sortedTodos)
+      setSelectedDateTodos(dayTodos)
     } catch (error) {
       console.error('加载待办失败:', error)
     }
@@ -96,15 +104,8 @@ function Schedule() {
         const updatedTodo = { ...todo, completed: !todo.completed }
         await db.put('todos', updatedTodo)
         
-        // 更新本地状态 - 同时更新 todos 和 selectedDateTodos
-        setTodos(prev => {
-          const newTodos = prev.map(t => t.id === id ? updatedTodo : t)
-          // 同时更新 selectedDateTodos，确保日历视图实时渲染
-          setSelectedDateTodos(prevSelected => 
-            prevSelected.map(t => t.id === id ? updatedTodo : t)
-          )
-          return newTodos
-        })
+        // 重新加载数据以确保视图同步
+        await loadTodos()
       }
     } catch (error) {
       console.error('更新待办失败:', error)
@@ -130,12 +131,12 @@ function Schedule() {
   }
 
   // 日历视图：获取某一天的待办
-  const getTodosForDate = (date: Date) => {
-    const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
-    const dateEnd = dateStart + 24 * 60 * 60 * 1000
-    return todos.filter(todo => {
+  const getTodosForDate = (date: Date, allTodos: Todo[] = todos) => {
+    const dateStart = dayjs(date).startOf('day').valueOf()
+    const dateEnd = dayjs(date).endOf('day').valueOf()
+    return allTodos.filter(todo => {
       if (!todo.dueDate) return false
-      return todo.dueDate >= dateStart && todo.dueDate < dateEnd
+      return todo.dueDate >= dateStart && todo.dueDate <= dateEnd
     })
   }
 
@@ -144,11 +145,58 @@ function Schedule() {
     setSelectedDate(date)
     const dayTodos = getTodosForDate(date)
     setSelectedDateTodos(dayTodos)
+    
+    // 点击日期自动弹出添加待办，并预填日期
+    todoForm.setFieldsValue({
+      date: [dayjs(date).startOf('day').valueOf()],
+      time: ['09:00']
+    })
+    setShowTodoModal(true)
   }
 
-  // 日历视图：判断某天是否有待办
-  const hasTodosOnDate = (date: Date) => {
-    return getTodosForDate(date).length > 0
+  // 添加普通待办
+  const handleAddTodo = async (values: any) => {
+    try {
+      const db = await getDB()
+      const now = Date.now()
+      const { title, date, time, note } = values
+      
+      const dateVal = Array.isArray(date) ? date[0] : date
+      const timeVal = Array.isArray(time) ? time[0] : time
+
+      let dueDate = dayjs(dateVal)
+      if (timeVal) {
+        const [hour, minute] = timeVal.split(':').map(Number)
+        dueDate = dueDate.hour(hour).minute(minute).second(0).millisecond(0)
+      } else {
+        dueDate = dueDate.hour(0).minute(0).second(0).millisecond(0)
+      }
+
+      const newTodo: Todo = {
+        id: generateId(),
+        title,
+        description: note || '',
+        completed: false,
+        priority: 'medium',
+        dueDate: dueDate.valueOf(),
+        createdAt: now,
+        type: 'normal'
+      }
+
+      await db.add('todos', newTodo)
+      await loadTodos()
+      
+      Toast.show({
+        icon: 'success',
+        content: '添加成功'
+      })
+      
+      setShowTodoModal(false)
+      todoForm.resetFields()
+    } catch (error) {
+      console.error('添加待办失败:', error)
+      Toast.show({ content: '添加失败' })
+    }
   }
 
   // 批量生成课程待办
@@ -160,34 +208,38 @@ function Schedule() {
       
       // 解析参数
       const { courseName, location, weekdays, startTime, endTime, startDate, weeks, color } = values
-      
+      const totalWeeks = parseInt(weeks) || 1
+      const startDay = Array.isArray(startDate) ? startDate[0] : startDate
+      const startTimeVal = Array.isArray(startTime) ? startTime[0] : startTime
+      const endTimeVal = Array.isArray(endTime) ? endTime[0] : endTime
+      const colorVal = Array.isArray(color) ? color[0] : color
+
       // 解析时间（HH:MM）
-      const [startHour, startMinute] = startTime.split(':').map(Number)
-      const [endHour, endMinute] = endTime.split(':').map(Number)
+      const [startHour, startMinute] = startTimeVal.split(':').map(Number)
+      const [endHour, endMinute] = endTimeVal.split(':').map(Number)
       
-      // 开始日期（使用 startDate，默认今天）
-      let startDateTime = new Date(startDate || new Date())
-      startDateTime.setHours(0, 0, 0, 0)
+      // 开始日期
+      let startDateTime = dayjs(startDay || dayjs().startOf('day'))
       
-      // 结束日期
-      let endDateTime = new Date(startDateTime)
-      endDateTime.setDate(startDateTime.getDate() + weeks * 7)
-      
-      // 生成所有符合条件的待办
+      // 批量生成所有符合条件的待办
       const courseTodos: Todo[] = []
+      const weekdayList = Array.isArray(weekdays) ? weekdays : [weekdays]
       
-      for (let date = new Date(startDateTime); date <= endDateTime; date.setDate(date.getDate() + 1)) {
-        const dayOfWeek = date.getDay()
-        
-        // 检查是否在选择的周几中
-        if (weekdays && weekdays.length > 0 && weekdays.includes(dayOfWeek)) {
-          // 创建待办的开始时间
-          const courseStart = new Date(date)
-          courseStart.setHours(startHour, startMinute, 0, 0)
+      for (let w = 0; w < totalWeeks; w++) {
+        for (const dw of weekdayList) {
+          // 计算该周对应周几的日期
+          let targetDate = startDateTime.add(w, 'week').day(dw)
           
-          // 创建待办的结束时间
-          const courseEnd = new Date(date)
-          courseEnd.setHours(endHour, endMinute, 0, 0)
+          // 如果计算出的日期早于开始日期，则跳到下一周的该天
+          if (targetDate.isBefore(startDateTime, 'day')) {
+            targetDate = targetDate.add(1, 'week')
+          }
+          
+          // 确保不超过总周数范围
+          if (targetDate.isAfter(startDateTime.add(totalWeeks, 'week'))) continue
+
+          const courseStart = targetDate.hour(startHour).minute(startMinute).second(0).millisecond(0)
+          const courseEnd = targetDate.hour(endHour).minute(endMinute).second(0).millisecond(0)
           
           courseTodos.push({
             id: generateId(),
@@ -195,13 +247,13 @@ function Schedule() {
             description: location ? `地点：${location}` : '',
             completed: false,
             priority: 'medium',
-            dueDate: courseStart.getTime(),
+            dueDate: courseStart.valueOf(),
             createdAt: now,
             batchId: batchId,
             type: 'course',
             location: location,
-            courseColor: color,
-            courseEndTime: courseEnd.getTime()
+            courseColor: colorVal,
+            courseEndTime: courseEnd.valueOf()
           })
         }
       }
@@ -221,7 +273,7 @@ function Schedule() {
       
       // 关闭弹窗并重置表单
       setShowCourseModal(false)
-      form.resetFields()
+      courseForm.resetFields()
       
     } catch (error) {
       console.error('添加课程失败:', error)
@@ -273,56 +325,63 @@ function Schedule() {
         </Space>
       </div>
 
+      {/* 页面顶部添加两个并排按钮 */}
+      <div className="action-buttons">
+        <Button 
+          onClick={() => {
+            courseForm.setFieldsValue({
+              weeks: '16',
+              color: ['#4A90E2'],
+              startDate: [dayjs().startOf('day').valueOf()]
+            })
+            setShowCourseModal(true)
+          }} 
+          className="btn-add-course"
+          block
+        >
+          + 添加课程/工作
+        </Button>
+        <Button 
+          onClick={() => {
+            todoForm.setFieldsValue({
+              date: [dayjs().startOf('day').valueOf()],
+              time: ['09:00']
+            })
+            setShowTodoModal(true)
+          }} 
+          className="btn-add-todo"
+          block
+        >
+          + 添加待办
+        </Button>
+      </div>
+
       {/* 列表视图 */}
       {viewMode === 'list' && (
         <div className="todos-list">
           <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#4a4a4a', margin: 0 }}>待办事项</h3>
-                <Badge 
-                  content={getFilteredTodos(todos).filter(t => !t.completed).length} 
-                  style={{ backgroundColor: '#c9a997' }} 
-                />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#4a4a4a', margin: 0 }}>待办事项</h3>
+                  <Badge 
+                    content={getFilteredTodos(todos).filter(t => !t.completed).length} 
+                    style={{ backgroundColor: '#c9a997' }} 
+                  />
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {/* 添加课程按钮 */}
-                <Button
-                  color="primary"
-                  onClick={() => setShowCourseModal(true)}
-                  style={{
-                    backgroundColor: '#4A90E2',
-                    borderColor: '#4A90E2',
-                    color: '#fff',
-                    fontSize: '14px'
-                  }}
-                >
-                  <AppOutline /> 排课
-                </Button>
-                {/* 筛选按钮 */}
-                <Picker
-                  columns={[
-                    FILTER_OPTIONS
-                  ]}
-                  value={[filterMode]}
-                  onConfirm={(val) => {
-                    setFilterMode(val[0] as any)
-                  }}
-                >
-                  {(items) => (
-                    <Button
-                      color="default"
-                      style={{
-                        backgroundColor: '#f8f6f1',
-                        borderColor: '#e8e4dd',
-                        color: '#4a4a4a',
-                        fontSize: '14px'
-                      }}
-                    >
-                      {items[0]?.label || '筛选'}
-                    </Button>
-                  )}
-                </Picker>
+              
+              {/* 筛选标签 */}
+              <div className="filter-tags">
+                {FILTER_OPTIONS.map(opt => (
+                  <div 
+                    key={opt.value}
+                    className={`filter-tag ${filterMode === opt.value ? 'active' : ''}`}
+                    onClick={() => setFilterMode(opt.value as any)}
+                  >
+                    {opt.label}
+                  </div>
+                ))}
               </div>
             </div>
             
@@ -406,20 +465,9 @@ function Schedule() {
         <div className="calendar-view">
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#4a4a4a', margin: 0 }}>日历</h3>
-              {/* 添加课程按钮 */}
-              <Button
-                color="primary"
-                onClick={() => setShowCourseModal(true)}
-                style={{
-                  backgroundColor: '#4A90E2',
-                  borderColor: '#4A90E2',
-                  color: '#fff',
-                  fontSize: '14px'
-                }}
-              >
-                <AppOutline /> 排课
-              </Button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#4a4a4a', margin: 0 }}>日历</h3>
+              </div>
             </div>
             <Calendar
               selectionMode="single"
@@ -429,26 +477,37 @@ function Schedule() {
               renderDate={(date: Date) => {
                 const dayTodos = getTodosForDate(date)
                 const hasTodo = dayTodos.length > 0
-                const hasCourse = dayTodos.some(t => t.type === 'course')
+                const courseTodo = dayTodos.find(t => t.type === 'course')
                 
                 return (
-                  <div className="calendar-date-cell">
+                  <div 
+                    className="calendar-date-cell"
+                    style={courseTodo ? {
+                      backgroundColor: `${courseTodo.courseColor}20`,
+                      borderRadius: '4px',
+                      width: '100%',
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    } : {}}
+                  >
                     <div>{date.getDate()}</div>
-                    {hasTodo && hasCourse && (
+                    {hasTodo && (
                       <div style={{ 
                         display: 'flex', 
                         justifyContent: 'center', 
-                        gap: '4px' 
+                        gap: '2px',
+                        marginTop: '2px'
                       }}>
-                        <div className="todo-dot" style={{ backgroundColor: '#c9a997' }} />
-                        <div className="todo-dot" style={{ backgroundColor: dayTodos.find(t => t.type === 'course')?.courseColor || '#4A90E2' }} />
+                        {dayTodos.some(t => t.type !== 'course') && (
+                          <div className="todo-dot" style={{ backgroundColor: '#c9a997' }} />
+                        )}
+                        {courseTodo && (
+                          <div className="todo-dot" style={{ backgroundColor: courseTodo.courseColor || '#4A90E2' }} />
+                        )}
                       </div>
-                    )}
-                    {hasTodo && !hasCourse && (
-                      <div className="todo-dot" style={{ backgroundColor: '#c9a997' }} />
-                    )}
-                    {!hasTodo && hasCourse && (
-                      <div className="todo-dot" style={{ backgroundColor: dayTodos.find(t => t.type === 'course')?.courseColor || '#4A90E2' }} />
                     )}
                   </div>
                 )
@@ -537,6 +596,106 @@ function Schedule() {
         </div>
       )}
 
+      {/* 添加待办弹窗 */}
+      <Modal
+        visible={showTodoModal}
+        onClose={() => setShowTodoModal(false)}
+        title="添加待办"
+        content={
+          <div style={{ padding: '8px 0' }}>
+            <Form
+              form={todoForm}
+              layout="vertical"
+              onFinish={handleAddTodo}
+              initialValues={{
+                date: [dayjs().startOf('day').valueOf()],
+                time: ['09:00']
+              }}
+            >
+              <Form.Item
+                label="标题"
+                name="title"
+                rules={[{ required: true, message: '请输入标题' }]}
+              >
+                <Input placeholder="想做什么？" />
+              </Form.Item>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <Form.Item
+                  label="日期"
+                  name="date"
+                  rules={[{ required: true, message: '请选择日期' }]}
+                >
+                  <Picker
+                    columns={[
+                      Array.from({ length: 365 }, (_, i) => {
+                        const date = dayjs().add(i - 30, 'day').toDate()
+                        return {
+                          label: dayjs(date).format('YYYY-MM-DD'),
+                          value: dayjs(date).startOf('day').valueOf(),
+                          key: dayjs(date).startOf('day').valueOf()
+                        }
+                      })
+                    ]}
+                  >
+                    {(items) => (
+                      <div style={{ 
+                        border: '1px solid #e8e4dd', 
+                        borderRadius: '8px', 
+                        padding: '10px 12px', 
+                        color: items[0] ? '#4a4a4a' : '#999' 
+                      }}>
+                        {items[0]?.label || '请选择'}
+                      </div>
+                    )}
+                  </Picker>
+                </Form.Item>
+
+                <Form.Item
+                  label="时间（可选）"
+                  name="time"
+                >
+                  <Picker
+                    columns={[
+                      TIME_OPTIONS.map(time => ({ ...time, key: time.value }))
+                    ]}
+                  >
+                    {(items) => (
+                      <div style={{ 
+                        border: '1px solid #e8e4dd', 
+                        borderRadius: '8px', 
+                        padding: '10px 12px', 
+                        color: items[0] ? '#4a4a4a' : '#999' 
+                      }}>
+                        {items[0]?.label || '不设时间'}
+                      </div>
+                    )}
+                  </Picker>
+                </Form.Item>
+              </div>
+
+              <Form.Item
+                label="备注（可选）"
+                name="note"
+              >
+                <Input placeholder="添加备注..." />
+              </Form.Item>
+
+              <div style={{ marginTop: '24px' }}>
+                <Button
+                  type="submit"
+                  color="primary"
+                  block
+                  style={{ backgroundColor: '#E8A0BF', borderColor: '#E8A0BF' }}
+                >
+                  确定添加
+                </Button>
+              </div>
+            </Form>
+          </div>
+        }
+      />
+
       {/* 添加课程表单弹窗 */}
       <Modal
         visible={showCourseModal}
@@ -545,11 +704,12 @@ function Schedule() {
         content={
           <div style={{ padding: '8px 0' }}>
             <Form
-              form={form}
+              form={courseForm}
               layout="vertical"
               initialValues={{
-                weeks: 16,
-                color: '#4A90E2'
+                weeks: '16',
+                color: ['#4A90E2'],
+                startDate: [dayjs().startOf('day').valueOf()]
               }}
               onFinish={handleAddCourse}
             >
@@ -573,25 +733,14 @@ function Schedule() {
                 name="weekdays"
                 rules={[{ required: true, message: '请选择周几' }]}
               >
-                <Picker
-                  columns={[
-                    WEEKDAY_OPTIONS.map(day => ({ ...day, key: day.value }))
-                  ]}
+                <Selector
+                  options={WEEKDAY_OPTIONS}
                   multiple
-                >
-                  {(items) => (
-                    <div style={{ 
-                      border: '1px solid #e8e4dd', 
-                      borderRadius: '8px', 
-                      padding: '10px 12px', 
-                      color: items.length ? '#4a4a4a' : '#999' 
-                    }}>
-                      {items.length > 0 
-                        ? items.map(item => item.label).join('、') 
-                        : '请选择周几'}
-                    </div>
-                  )}
-                </Picker>
+                  style={{
+                    '--border-radius': '8px',
+                    '--checked-color': '#c9a997',
+                  }}
+                />
               </Form.Item>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -651,11 +800,11 @@ function Schedule() {
                   <Picker
                     columns={[
                       Array.from({ length: 365 }, (_, i) => {
-                        const date = dayjs().add(i, 'day').toDate()
+                        const date = dayjs().add(i - 30, 'day').toDate()
                         return {
                           label: dayjs(date).format('YYYY-MM-DD'),
-                          value: dayjs(date).valueOf(),
-                          key: dayjs(date).valueOf()
+                          value: dayjs(date).startOf('day').valueOf(),
+                          key: dayjs(date).startOf('day').valueOf()
                         }
                       })
                     ]}
@@ -678,7 +827,11 @@ function Schedule() {
                   name="weeks"
                   rules={[{ required: true, message: '请输入持续周数' }]}
                 >
-                  <Input type="number" placeholder="如：16" min="1" />
+                  <Input 
+                    type="number" 
+                    placeholder="如：16" 
+                    min={1} 
+                  />
                 </Form.Item>
               </div>
 
@@ -705,7 +858,7 @@ function Schedule() {
                         width: '20px', 
                         height: '20px', 
                         borderRadius: '4px', 
-                        backgroundColor: items[0]?.value || '#4A90E2' 
+                        backgroundColor: (items[0]?.value as string) || '#4A90E2' 
                       }} />
                       <span>{items[0]?.label || '蓝色（工作）'}</span>
                     </div>
@@ -718,9 +871,9 @@ function Schedule() {
                   type="submit"
                   color="primary"
                   block
-                  style={{ backgroundColor: '#c9a997', borderColor: '#c9a997' }}
+                  style={{ backgroundColor: '#4A90D9', borderColor: '#4A90D9' }}
                 >
-                  添加课程
+                  批量添加课程
                 </Button>
               </div>
             </Form>

@@ -99,3 +99,72 @@
   border-radius: 50%;
   margin-top: 2px;
 }
+
+/* 新增按钮样式 */
+.action-buttons {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  background-color: #ffffff;
+}
+
+.btn-add-course {
+  --background-color: #4A90D9 !important;
+  --text-color: #ffffff !important;
+  border-radius: 12px !important;
+  font-weight: 500 !important;
+  height: 44px !important;
+}
+
+.btn-add-todo {
+  --background-color: #E8A0BF !important;
+  --text-color: #ffffff !important;
+  border-radius: 12px !important;
+  font-weight: 500 !important;
+  height: 44px !important;
+}
+
+/* 筛选标签样式 */
+.filter-tags {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.filter-tag {
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  background-color: #f8f6f1;
+  color: #4a4a4a;
+  border: 1px solid #e8e4dd;
+  transition: all 0.2s;
+}
+
+.filter-tag.active {
+  background-color: #c9a997;
+  color: #ffffff;
+  border-color: #c9a997;
+}
+
+/* 表单内部样式微调 */
+.weekday-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.weekday-item {
+  padding: 6px 12px;
+  border-radius: 8px;
+  background-color: #f8f6f1;
+  border: 1px solid #e8e4dd;
+  font-size: 13px;
+  color: #4a4a4a;
+}
+
+.weekday-item.active {
+  background-color: #c9a997;
+  color: #ffffff;
+  border-color: #c9a997;
+}
